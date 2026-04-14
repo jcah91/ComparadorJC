@@ -465,8 +465,9 @@
             <button class="menu-icon" id="btn-close-menu" style="font-size: 24px;">✕</button>
         </div>
         <h2 style="margin-top: 0; margin-bottom: 20px; font-size: 20px;">Opciones</h2>
-        <button id="btn-save-cloud" class="btn-secondary" style="text-align: left; border: 2px solid var(--accent-color); color: var(--accent-color);">☁️ Guardar en la Nube</button>
-        <button id="btn-load-cloud" class="btn-secondary" style="text-align: left; border: 2px solid var(--accent-color); color: var(--accent-color);">☁️ Cargar de la Nube</button>
+        <button id="btn-connect-drive" class="btn-secondary" style="text-align: left; border: 2px solid #0F9D58; color: #0F9D58;">🔗 Conectar Google Drive</button>
+        <button id="btn-save-drive" class="btn-secondary" style="text-align: left; border: 2px solid var(--accent-color); color: var(--accent-color); display: none;">☁️ Guardar en Drive</button>
+        <button id="btn-load-drive" class="btn-secondary" style="text-align: left; border: 2px solid var(--accent-color); color: var(--accent-color); display: none;">☁️ Cargar de Drive</button>
         <hr style="width: 100%; border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
         <button id="btn-open-list-modal" class="btn-secondary" style="text-align: left;">📝 Pegar Lista de Texto</button>
         <button id="btn-save-json" class="btn-secondary" style="text-align: left;">💾 Descargar Archivo</button>
@@ -557,79 +558,6 @@
         <img src="" alt="Vista ampliada" class="lightbox-img" id="lightbox-img">
         <button class="lightbox-close" id="btn-close-lightbox">Cerrar</button>
     </div>
-
-    <!-- Módulo de Firebase para Guardado en la Nube -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        let db, auth, appId;
-        let currentUser = null;
-
-        try {
-            const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
-            if (firebaseConfigStr) {
-                const firebaseConfig = JSON.parse(firebaseConfigStr);
-                const app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                db = getFirestore(app);
-                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-
-                const initAuth = async () => {
-                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth);
-                    }
-                };
-                initAuth();
-
-                onAuthStateChanged(auth, (user) => {
-                    currentUser = user;
-                });
-            }
-        } catch (e) {
-            console.error("Firebase no está disponible:", e);
-        }
-
-        window.saveDataToCloud = async (dataJSON) => {
-            if (!currentUser || !db) {
-                alert("El guardado en la nube no está configurado en este entorno.");
-                return false;
-            }
-            try {
-                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'cotizaciones', 'proyecto_actual');
-                await setDoc(docRef, { data: dataJSON });
-                return true;
-            } catch (e) {
-                console.error("Error guardando:", e);
-                alert("Error al guardar en la nube.");
-                return false;
-            }
-        };
-
-        window.loadDataFromCloud = async () => {
-            if (!currentUser || !db) {
-                alert("La carga desde la nube no está configurada en este entorno.");
-                return null;
-            }
-            try {
-                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'cotizaciones', 'proyecto_actual');
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    return docSnap.data().data;
-                } else {
-                    alert("No tienes ningún proyecto guardado en la nube.");
-                    return null;
-                }
-            } catch (e) {
-                console.error("Error cargando:", e);
-                alert("Error al cargar desde la nube.");
-                return null;
-            }
-        };
-    </script>
 
     <script>
         // Referencias del DOM Generales
@@ -1124,10 +1052,65 @@
             updateCalculations(); 
         }
 
-        // --- BOTONES DE GUARDADO EN LA NUBE ---
-        document.getElementById('btn-save-cloud').addEventListener('click', async () => {
+        // --- INTEGRACIÓN CON GOOGLE DRIVE API ---
+        
+        // ⚠️ PEGA AQUÍ TU CLIENT ID GENERADO EN GOOGLE CLOUD
+        const CLIENT_ID = '473454894075-n2sg57a4uqi2dbcppejpa69fqrk2eams.apps.googleusercontent.com'; 
+        
+        // El scope "drive.file" solo permite a la app ver y editar los archivos que ella misma creó, es el más seguro.
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+        let tokenClient;
+        let accessToken = null;
+
+        // Cargar la librería de Identidad de Google
+        const gisScript = document.createElement('script');
+        gisScript.src = 'https://accounts.google.com/gsi/client';
+        gisScript.async = true;
+        gisScript.defer = true;
+        gisScript.onload = () => {
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: CLIENT_ID,
+                scope: SCOPES,
+                callback: (tokenResponse) => {
+                    if (tokenResponse && tokenResponse.access_token) {
+                        accessToken = tokenResponse.access_token;
+                        document.getElementById('btn-connect-drive').style.display = 'none';
+                        document.getElementById('btn-save-drive').style.display = 'block';
+                        document.getElementById('btn-load-drive').style.display = 'block';
+                        alert("¡Conectado a Google Drive exitosamente!");
+                    }
+                },
+            });
+        };
+        document.head.appendChild(gisScript);
+
+        // Botón para iniciar sesión y dar permisos
+        document.getElementById('btn-connect-drive').addEventListener('click', () => {
             closeMenu();
-            
+            if (CLIENT_ID === 'TU_CLIENT_ID_AQUI.apps.googleusercontent.com') {
+                alert("Primero debes pegar tu CLIENT_ID de Google Cloud en el código fuente (busca la variable CLIENT_ID).");
+                return;
+            }
+            tokenClient.requestAccessToken();
+        });
+
+        // Función auxiliar para buscar si ya existe nuestro archivo en el Drive
+        async function getDriveFileId() {
+            const response = await fetch(`https://www.googleapis.com/drive/v3/files?q=name='cotizador_data.json' and trashed=false&spaces=drive`, {
+                headers: { Authorization: `Bearer ${accessToken}` }
+            });
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                return data.files[0].id; // Retorna el ID del archivo si ya existe
+            }
+            return null;
+        }
+
+        // Guardar en Drive
+        document.getElementById('btn-save-drive').addEventListener('click', async () => {
+            closeMenu();
+            if (!accessToken) { alert("Inicia sesión primero."); return; }
+
             const ths = Array.from(headerRow.querySelectorAll('th.provider-header'));
             const extraHeaders = ths.map(th => th.querySelector('span[contenteditable]').textContent);
 
@@ -1141,34 +1124,65 @@
             });
 
             const data = { extraHeaders, rows };
+            const jsonStr = JSON.stringify(data);
             
-            if (window.saveDataToCloud) {
-                const btn = document.getElementById('btn-save-cloud');
-                btn.textContent = "⏳ Guardando...";
-                const success = await window.saveDataToCloud(JSON.stringify(data));
-                if(success) alert("¡Proyecto sincronizado en la nube exitosamente!");
-                btn.textContent = "☁️ Guardar en la Nube";
+            const btn = document.getElementById('btn-save-drive');
+            btn.textContent = "⏳ Subiendo a Drive...";
+
+            try {
+                let fileId = await getDriveFileId();
+                
+                if (!fileId) {
+                    // Si el archivo no existe, creamos su contenedor primero
+                    const metaRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+                        method: 'POST',
+                        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: 'cotizador_data.json', mimeType: 'application/json' })
+                    });
+                    const metaData = await metaRes.json();
+                    fileId = metaData.id;
+                }
+
+                // Subimos (o actualizamos) el contenido del archivo
+                await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
+                    method: 'PATCH',
+                    headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+                    body: jsonStr
+                });
+                
+                alert("¡Proyecto sincronizado correctamente en tu Google Drive!");
+            } catch(e) {
+                alert("Hubo un error al conectar con Drive. Revisa tu conexión.");
+                console.error(e);
             }
+            btn.textContent = "☁️ Guardar en Drive";
         });
 
-        document.getElementById('btn-load-cloud').addEventListener('click', async () => {
+        // Cargar desde Drive
+        document.getElementById('btn-load-drive').addEventListener('click', async () => {
             closeMenu();
-            
-            if (window.loadDataFromCloud) {
-                const btn = document.getElementById('btn-load-cloud');
-                btn.textContent = "⏳ Cargando...";
-                const jsonString = await window.loadDataFromCloud();
-                btn.textContent = "☁️ Cargar de la Nube";
-                
-                if (jsonString) {
-                    try {
-                        const data = JSON.parse(jsonString);
-                        renderDataToTable(data);
-                    } catch (error) {
-                        alert("Error procesando los datos de la nube.");
-                    }
+            if (!accessToken) { alert("Inicia sesión primero."); return; }
+
+            const btn = document.getElementById('btn-load-drive');
+            btn.textContent = "⏳ Descargando...";
+
+            try {
+                let fileId = await getDriveFileId();
+                if (!fileId) {
+                    alert("Aún no tienes ningún proyecto guardado en tu Drive.");
+                } else {
+                    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                        headers: { Authorization: `Bearer ${accessToken}` }
+                    });
+                    const data = await response.json();
+                    renderDataToTable(data);
+                    alert("¡Proyecto cargado exitosamente!");
                 }
+            } catch(e) {
+                alert("Error al cargar el archivo de Drive.");
+                console.error(e);
             }
+            btn.textContent = "☁️ Cargar de Drive";
         });
 
         // --- GUARDAR / CARGAR JSON LOCAL ---
