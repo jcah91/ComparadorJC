@@ -15,6 +15,8 @@
             --accent-hover: #0062cc;
             --border-color: #d2d2d7;
             --table-bg: #ffffff;
+            --highlight-color: #d4edda; /* Color verde resaltador */
+            --highlight-text: #155724;
         }
 
         body {
@@ -140,6 +142,7 @@
             border-bottom: 1px solid var(--border-color);
             border-right: 1px solid var(--border-color);
             vertical-align: middle;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
 
         th {
@@ -157,6 +160,24 @@
             background-color: #f0f8ff;
         }
 
+        /* --- Estilos Fila Totales --- */
+        tfoot th {
+            background-color: #f5f5f7;
+            color: var(--text-color);
+            font-size: 15px;
+            font-weight: 700;
+            border-top: 2px solid var(--border-color);
+            border-bottom: none;
+        }
+
+        /* --- Resaltado del Precio Más Bajo --- */
+        .highlight-green {
+            background-color: var(--highlight-color) !important;
+            color: var(--highlight-text) !important;
+            font-weight: 600;
+            box-shadow: inset 0 0 0 2px #c3e6cb;
+        }
+
         /* --- Animación para cuando se crea la nueva fila --- */
         @keyframes fadeInRow {
             from { opacity: 0; transform: translateY(10px); }
@@ -165,7 +186,6 @@
 
         #table-body tr {
             animation: fadeInRow 0.3s ease-out;
-            transition: background-color 0.2s;
         }
 
         td {
@@ -255,8 +275,20 @@
             display: table-cell; /* Muestra la columna al editar */
         }
 
+        /* Botón para borrar columna */
+        .delete-col-btn {
+            display: none;
+            margin-left: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        body.edit-mode .delete-col-btn {
+            display: inline-block;
+        }
+
         /* Bloquea la edición normal de celdas mientras organizas */
         body.edit-mode td[contenteditable="true"],
+        body.edit-mode th span[contenteditable="true"],
         body.edit-mode .product-cell {
             pointer-events: none; 
             opacity: 0.8;
@@ -285,7 +317,6 @@
             color: white;
             font-size: 12px;
         }
-
 
         /* --- Estilos de Modal Base --- */
         .modal-overlay {
@@ -467,8 +498,16 @@
                         </tr>
                     </thead>
                     <tbody id="table-body">
-                        <!-- Filas -->
+                        <!-- Filas de productos -->
                     </tbody>
+                    <!-- Fila de Totales -->
+                    <tfoot>
+                        <tr id="table-foot-row">
+                            <th class="action-col no-print"></th>
+                            <th style="text-align: right; padding-right: 20px;">TOTAL:</th>
+                            <th id="foot-add-col" class="no-print"></th>
+                        </tr>
+                    </tfoot>
                 </table>
             </div>
         </div>
@@ -498,7 +537,6 @@
                     <span id="modal-image-icon">+</span>
                     <img id="modal-image-preview" src="" alt="Preview">
                 </div>
-                <!-- Pequeña instrucción agregada para indicar el copiado y pegado -->
                 <p style="color: #86868b; font-size: 13px; margin: 0;">Toca o pega (Ctrl+V) una foto</p>
             </div>
 
@@ -522,6 +560,8 @@
         const tableBody = document.getElementById('table-body');
         const headerRow = document.getElementById('header-row');
         const addColTh = document.getElementById('add-col-th');
+        const tableFootRow = document.getElementById('table-foot-row');
+        const footAddCol = document.getElementById('foot-add-col');
         let extraColumnsCount = 0;
 
         // --- LÓGICA DEL MENÚ ---
@@ -552,6 +592,87 @@
             }
         });
 
+        // --- LÓGICA DE FORMATO DE NÚMEROS Y CÁLCULOS AUTOMÁTICOS ---
+        
+        // Convertir string "1,000.50" a número 1000.50
+        function parsePrice(str) {
+            if(!str) return NaN;
+            return parseFloat(str.replace(/,/g, ''));
+        }
+
+        // Detectar cuando el usuario termina de escribir en una celda de precio
+        tableBody.addEventListener('focusout', (e) => {
+            // Verifica que sea un td y que no sea ni Acción (0) ni Producto (1)
+            if (e.target.tagName === 'TD' && e.target.cellIndex > 1) {
+                let rawVal = e.target.textContent.trim();
+                let num = parsePrice(rawVal);
+                
+                if (!isNaN(num)) {
+                    // Formatea a número con comas
+                    e.target.textContent = num.toLocaleString('en-US'); 
+                } else if (rawVal !== '') {
+                    // Si metió texto inválido, limpiar celda
+                    e.target.textContent = '';
+                }
+                
+                // Recalcular todo
+                updateCalculations();
+            }
+        });
+
+        // Función principal para Totalizar y Resaltar
+        function updateCalculations() {
+            let totals = new Array(extraColumnsCount).fill(0);
+            const rows = tableBody.querySelectorAll('tr:not(.blank-row)');
+
+            rows.forEach(row => {
+                let cells = row.querySelectorAll('td');
+                let rowPrices = [];
+                let rowCells = [];
+
+                // 1. Recopilar precios de la fila y sumar a los totales
+                for(let i = 0; i < extraColumnsCount; i++) {
+                    let cell = cells[i + 2]; // Empezamos desde el índice 2 (después de acción y producto)
+                    if(!cell) continue;
+                    
+                    // Limpiar resaltado previo
+                    cell.classList.remove('highlight-green');
+
+                    let val = parsePrice(cell.textContent);
+                    if (!isNaN(val)) {
+                        rowPrices.push(val);
+                        totals[i] += val;
+                    } else {
+                        rowPrices.push(null); // Usamos null para celdas vacías
+                    }
+                    rowCells.push(cell);
+                }
+
+                // 2. Resaltar el precio más bajo (Solo si hay 2 o más precios válidos)
+                if (extraColumnsCount >= 2) {
+                    let validPrices = rowPrices.filter(p => p !== null);
+                    // Solo resaltamos si hay al menos 2 proveedores ingresados con precios para comparar
+                    if (validPrices.length >= 2) {
+                        let minPrice = Math.min(...validPrices);
+                        // Aplicar clase resaltadora a la(s) celda(s) ganadora(s)
+                        rowPrices.forEach((p, index) => {
+                            if (p === minPrice) {
+                                rowCells[index].classList.add('highlight-green');
+                            }
+                        });
+                    }
+                }
+            });
+
+            // 3. Actualizar la Fila de Totales (Footer)
+            for(let i = 0; i < extraColumnsCount; i++) {
+                let footCell = tableFootRow.cells[i + 2];
+                if(footCell) {
+                    footCell.textContent = totals[i] > 0 ? totals[i].toLocaleString('en-US') : '';
+                }
+            }
+        }
+
         // --- LÓGICA DEL MODAL DE LISTA (TEXTO) ---
         const listModal = document.getElementById('list-modal');
         const textInput = document.getElementById('object-list-input');
@@ -567,7 +688,8 @@
             const lines = textInput.value.split('\n').filter(line => line.trim() !== '');
             lines.forEach(item => addRowToTable(item, null));
             listModal.classList.remove('active');
-            ensureBlankRow(); // Asegurar línea blanca al final
+            ensureBlankRow();
+            updateCalculations();
         });
 
         // --- LÓGICA DEL MODAL DE PRODUCTO INDIVIDUAL ---
@@ -603,7 +725,7 @@
 
         document.getElementById('btn-close-product-modal').addEventListener('click', () => productModal.classList.remove('active'));
 
-        // Carga por clic (File explorer)
+        // Carga por clic
         modalImageTrigger.addEventListener('click', () => modalFileInput.click());
         modalFileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
@@ -618,11 +740,9 @@
             }
         });
 
-        // Lógica para PEGAR la imagen desde el portapapeles
+        // Pegar imagen
         document.addEventListener('paste', (e) => {
-            // Solo actuar si el modal del producto está abierto
             if (!productModal.classList.contains('active')) return;
-
             const items = (e.clipboardData || e.originalEvent.clipboardData).items;
             for (let index in items) {
                 const item = items[index];
@@ -635,7 +755,7 @@
                         modalImageIcon.style.display = 'none';
                     };
                     reader.readAsDataURL(file);
-                    break; // Detenerse luego de encontrar la primera imagen
+                    break;
                 }
             }
         });
@@ -683,6 +803,7 @@
 
             productModal.classList.remove('active');
             ensureBlankRow();
+            updateCalculations();
         });
 
 
@@ -705,17 +826,17 @@
                 </div>
             `;
 
-            // Lógica botones de edición
             tdAction.querySelector('.move-up').addEventListener('click', () => {
                 if(tr.previousElementSibling) {
                     tr.parentNode.insertBefore(tr, tr.previousElementSibling);
+                    updateCalculations();
                 }
             });
 
             tdAction.querySelector('.move-down').addEventListener('click', () => {
-                // No mover por debajo de la fila blanca final
                 if(tr.nextElementSibling && !tr.nextElementSibling.classList.contains('blank-row')) {
                     tr.parentNode.insertBefore(tr.nextElementSibling, tr);
+                    updateCalculations();
                 }
             });
 
@@ -723,6 +844,7 @@
                 if(confirm('¿Seguro que deseas eliminar este producto?')) {
                     tr.remove();
                     ensureBlankRow();
+                    updateCalculations(); // Recalcular tras eliminar
                 }
             });
 
@@ -746,7 +868,7 @@
             `;
 
             tdProduct.addEventListener('click', (e) => {
-                if (document.body.classList.contains('edit-mode')) return; // Bloquear en modo edición
+                if (document.body.classList.contains('edit-mode')) return;
                 
                 if (e.target.closest('.image-thumbnail') && tdProduct.dataset.image) {
                     openLightbox(tdProduct.dataset.image);
@@ -761,7 +883,9 @@
             for (let i = 0; i < extraColumnsCount; i++) {
                 const tdExtra = document.createElement('td');
                 tdExtra.contentEditable = "true";
-                tdExtra.textContent = extraValues[i] || "";
+                // Formatear si viene de un JSON cargado
+                let val = parsePrice(extraValues[i]);
+                tdExtra.textContent = !isNaN(val) ? val.toLocaleString('en-US') : (extraValues[i] || "");
                 tr.appendChild(tdExtra);
             }
 
@@ -792,21 +916,71 @@
         }
 
 
-        // --- LÓGICA DE COLUMNAS (PRECIOS) ---
-        document.getElementById('btn-add-col').addEventListener('click', () => {
+        // --- LÓGICA DE COLUMNAS (PROVEEDORES) ---
+
+        // Función para agregar una columna nueva
+        function addColumn(headerText = null) {
             extraColumnsCount++;
 
+            // Cabecera superior
             const newTh = document.createElement('th');
-            newTh.textContent = "Precio " + extraColumnsCount;
-            newTh.contentEditable = "true";
+            newTh.className = 'provider-header';
+            
+            // Span para el texto editable
+            const titleSpan = document.createElement('span');
+            titleSpan.contentEditable = "true";
+            titleSpan.textContent = headerText || "Proveedor " + extraColumnsCount;
+            titleSpan.style.outline = "none";
+            
+            // Botón para borrar la columna (solo visible en modo edición)
+            const delBtn = document.createElement('span');
+            delBtn.className = 'delete-col-btn no-print';
+            delBtn.textContent = '❌';
+            delBtn.title = 'Eliminar Columna';
+            delBtn.onclick = function(e) {
+                e.stopPropagation();
+                if(confirm("¿Seguro que deseas eliminar este proveedor y todos sus precios?")) {
+                    const index = Array.from(headerRow.children).indexOf(newTh);
+                    newTh.remove();
+                    
+                    const rows = tableBody.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        if (row.children[index]) row.children[index].remove();
+                    });
+
+                    if (tableFootRow.children[index]) {
+                        tableFootRow.children[index].remove();
+                    }
+
+                    extraColumnsCount--;
+                    updateCalculations();
+                }
+            };
+
+            newTh.appendChild(titleSpan);
+            newTh.appendChild(delBtn);
+
             headerRow.insertBefore(newTh, addColTh);
 
+            // Celdas en las filas del cuerpo
             const rows = tableBody.querySelectorAll('tr');
             rows.forEach(row => {
                 const newTd = document.createElement('td');
                 newTd.contentEditable = "true";
                 row.appendChild(newTd);
             });
+
+            // Cabecera del Footer (Totales)
+            const newFootTh = document.createElement('th');
+            newFootTh.textContent = "";
+            tableFootRow.insertBefore(newFootTh, footAddCol);
+
+            updateCalculations();
+        }
+
+        // Listener del botón "+" para añadir proveedor
+        document.getElementById('btn-add-col').addEventListener('click', () => {
+            addColumn();
         });
 
 
@@ -829,16 +1003,16 @@
         document.getElementById('btn-save-json').addEventListener('click', () => {
             closeMenu();
             
-            const ths = Array.from(headerRow.querySelectorAll('th'));
-            // Ahora la columna de Producto es el índice 1 y "+" es el último.
-            const extraHeaders = ths.slice(2, ths.length - 1).map(th => th.textContent);
+            // Buscar solo las cabeceras que sean de proveedores (tienen clase provider-header)
+            const ths = Array.from(headerRow.querySelectorAll('th.provider-header'));
+            const extraHeaders = ths.map(th => th.querySelector('span[contenteditable]').textContent);
 
             const rows = [];
             document.querySelectorAll('#table-body tr:not(.blank-row)').forEach(tr => {
                 const tds = tr.querySelectorAll('td');
-                const name = tds[1].dataset.name; // Indice 1 es Producto
+                const name = tds[1].dataset.name;
                 const imageSrc = tds[1].dataset.image;
-                const extraValues = Array.from(tds).slice(2).map(td => td.textContent); // Índices 2 en adelante
+                const extraValues = Array.from(tds).slice(2).map(td => td.textContent);
                 rows.push({ name, imageSrc, extraValues });
             });
 
@@ -867,24 +1041,30 @@
                 try {
                     const data = JSON.parse(event.target.result);
                     
-                    tableBody.innerHTML = '';
+                    tableBody.innerHTML = ''; // Limpiar filas viejas
                     
-                    const ths = headerRow.querySelectorAll('th');
-                    // Remover todas las cabeceras extras viejas
-                    for (let i = 2; i < ths.length - 1; i++) { ths[i].remove(); }
+                    // Limpiar cabeceras viejas usando su clase
+                    headerRow.querySelectorAll('.provider-header').forEach(th => th.remove());
+                    
+                    // Limpiar footer (dejamos el índice 0: acción, 1: Texto TOTAL, y el último: botón +)
+                    const footThs = tableFootRow.querySelectorAll('th');
+                    for (let i = footThs.length - 2; i >= 2; i--) { 
+                        footThs[i].remove(); 
+                    }
 
-                    extraColumnsCount = data.extraHeaders ? data.extraHeaders.length : 0;
-                    data.extraHeaders.forEach(headerText => {
-                        const newTh = document.createElement('th');
-                        newTh.textContent = headerText;
-                        newTh.contentEditable = "true";
-                        headerRow.insertBefore(newTh, addColTh);
-                    });
+                    extraColumnsCount = 0; // Reiniciar contador antes de cargar
+
+                    if (data.extraHeaders) {
+                        data.extraHeaders.forEach(headerText => {
+                            addColumn(headerText);
+                        });
+                    }
 
                     if(data.rows) {
                         data.rows.forEach(row => addRowToTable(row.name, row.imageSrc, row.extraValues));
                     }
                     ensureBlankRow();
+                    updateCalculations(); // Calcular tras cargar
                 } catch (error) {
                     alert("Error al cargar el archivo.");
                 }
@@ -897,7 +1077,6 @@
         // --- EXPORTAR A PDF ---
         document.getElementById('btn-export-pdf').addEventListener('click', () => {
             closeMenu();
-            // Asegurarse de que salimos de modo edición al imprimir
             document.body.classList.remove('edit-mode');
             btnToggleEdit.innerHTML = '✏️ Editar';
             btnToggleEdit.classList.add('btn-secondary');
