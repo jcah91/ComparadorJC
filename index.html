@@ -465,9 +465,12 @@
             <button class="menu-icon" id="btn-close-menu" style="font-size: 24px;">✕</button>
         </div>
         <h2 style="margin-top: 0; margin-bottom: 20px; font-size: 20px;">Opciones</h2>
+        <button id="btn-save-cloud" class="btn-secondary" style="text-align: left; border: 2px solid var(--accent-color); color: var(--accent-color);">☁️ Guardar en la Nube</button>
+        <button id="btn-load-cloud" class="btn-secondary" style="text-align: left; border: 2px solid var(--accent-color); color: var(--accent-color);">☁️ Cargar de la Nube</button>
+        <hr style="width: 100%; border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
         <button id="btn-open-list-modal" class="btn-secondary" style="text-align: left;">📝 Pegar Lista de Texto</button>
-        <button id="btn-save-json" class="btn-secondary" style="text-align: left;">💾 Guardar Proyecto</button>
-        <button id="btn-load-json" class="btn-secondary" style="text-align: left;">📂 Cargar Proyecto</button>
+        <button id="btn-save-json" class="btn-secondary" style="text-align: left;">💾 Descargar Archivo</button>
+        <button id="btn-load-json" class="btn-secondary" style="text-align: left;">📂 Cargar Archivo</button>
         <input type="file" id="json-file-input" accept=".json" style="display: none;">
         <div style="flex-grow: 1;"></div>
         <button id="btn-export-pdf" class="btn-danger" style="text-align: left;">📄 Guardar PDF</button>
@@ -554,6 +557,79 @@
         <img src="" alt="Vista ampliada" class="lightbox-img" id="lightbox-img">
         <button class="lightbox-close" id="btn-close-lightbox">Cerrar</button>
     </div>
+
+    <!-- Módulo de Firebase para Guardado en la Nube -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        let db, auth, appId;
+        let currentUser = null;
+
+        try {
+            const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+            if (firebaseConfigStr) {
+                const firebaseConfig = JSON.parse(firebaseConfigStr);
+                const app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+                };
+                initAuth();
+
+                onAuthStateChanged(auth, (user) => {
+                    currentUser = user;
+                });
+            }
+        } catch (e) {
+            console.error("Firebase no está disponible:", e);
+        }
+
+        window.saveDataToCloud = async (dataJSON) => {
+            if (!currentUser || !db) {
+                alert("El guardado en la nube no está configurado en este entorno.");
+                return false;
+            }
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'cotizaciones', 'proyecto_actual');
+                await setDoc(docRef, { data: dataJSON });
+                return true;
+            } catch (e) {
+                console.error("Error guardando:", e);
+                alert("Error al guardar en la nube.");
+                return false;
+            }
+        };
+
+        window.loadDataFromCloud = async () => {
+            if (!currentUser || !db) {
+                alert("La carga desde la nube no está configurada en este entorno.");
+                return null;
+            }
+            try {
+                const docRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'cotizaciones', 'proyecto_actual');
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    return docSnap.data().data;
+                } else {
+                    alert("No tienes ningún proyecto guardado en la nube.");
+                    return null;
+                }
+            } catch (e) {
+                console.error("Error cargando:", e);
+                alert("Error al cargar desde la nube.");
+                return null;
+            }
+        };
+    </script>
 
     <script>
         // Referencias del DOM Generales
@@ -725,18 +801,46 @@
 
         document.getElementById('btn-close-product-modal').addEventListener('click', () => productModal.classList.remove('active'));
 
+        // Función para comprimir imágenes antes de guardarlas (vital para la nube)
+        function compressImage(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const MAX_SIZE = 500;
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > height && width > MAX_SIZE) {
+                        height *= MAX_SIZE / width;
+                        width = MAX_SIZE;
+                    } else if (height > MAX_SIZE) {
+                        width *= MAX_SIZE / height;
+                        height = MAX_SIZE;
+                    }
+                    
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+                    callback(canvas.toDataURL('image/jpeg', 0.8)); // Comprime para optimizar JSON
+                }
+                img.src = event.target.result;
+            }
+            reader.readAsDataURL(file);
+        }
+
         // Carga por clic
         modalImageTrigger.addEventListener('click', () => modalFileInput.click());
         modalFileInput.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = function(event) {
-                    modalImagePreview.src = event.target.result;
+                compressImage(file, (dataUrl) => {
+                    modalImagePreview.src = dataUrl;
                     modalImagePreview.style.display = 'block';
                     modalImageIcon.style.display = 'none';
-                }
-                reader.readAsDataURL(file);
+                });
             }
         });
 
@@ -748,13 +852,11 @@
                 const item = items[index];
                 if (item.kind === 'file' && item.type.startsWith('image/')) {
                     const file = item.getAsFile();
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                        modalImagePreview.src = event.target.result;
+                    compressImage(file, (dataUrl) => {
+                        modalImagePreview.src = dataUrl;
                         modalImagePreview.style.display = 'block';
                         modalImageIcon.style.display = 'none';
-                    };
-                    reader.readAsDataURL(file);
+                    });
                     break;
                 }
             }
@@ -996,8 +1098,80 @@
         document.getElementById('btn-close-lightbox').addEventListener('click', () => lightbox.classList.remove('active'));
         lightbox.addEventListener('click', (e) => { if(e.target === lightbox) lightbox.classList.remove('active'); });
 
+        // --- LÓGICA COMPARTIDA DE RENDERIZADO DE TABLA ---
+        function renderDataToTable(data) {
+            tableBody.innerHTML = ''; 
+            
+            headerRow.querySelectorAll('.provider-header').forEach(th => th.remove());
+            
+            const footThs = tableFootRow.querySelectorAll('th');
+            for (let i = footThs.length - 2; i >= 2; i--) { 
+                footThs[i].remove(); 
+            }
 
-        // --- GUARDAR / CARGAR JSON ---
+            extraColumnsCount = 0; 
+
+            if (data.extraHeaders) {
+                data.extraHeaders.forEach(headerText => {
+                    addColumn(headerText);
+                });
+            }
+
+            if(data.rows) {
+                data.rows.forEach(row => addRowToTable(row.name, row.imageSrc, row.extraValues));
+            }
+            ensureBlankRow();
+            updateCalculations(); 
+        }
+
+        // --- BOTONES DE GUARDADO EN LA NUBE ---
+        document.getElementById('btn-save-cloud').addEventListener('click', async () => {
+            closeMenu();
+            
+            const ths = Array.from(headerRow.querySelectorAll('th.provider-header'));
+            const extraHeaders = ths.map(th => th.querySelector('span[contenteditable]').textContent);
+
+            const rows = [];
+            document.querySelectorAll('#table-body tr:not(.blank-row)').forEach(tr => {
+                const tds = tr.querySelectorAll('td');
+                const name = tds[1].dataset.name;
+                const imageSrc = tds[1].dataset.image;
+                const extraValues = Array.from(tds).slice(2).map(td => td.textContent);
+                rows.push({ name, imageSrc, extraValues });
+            });
+
+            const data = { extraHeaders, rows };
+            
+            if (window.saveDataToCloud) {
+                const btn = document.getElementById('btn-save-cloud');
+                btn.textContent = "⏳ Guardando...";
+                const success = await window.saveDataToCloud(JSON.stringify(data));
+                if(success) alert("¡Proyecto sincronizado en la nube exitosamente!");
+                btn.textContent = "☁️ Guardar en la Nube";
+            }
+        });
+
+        document.getElementById('btn-load-cloud').addEventListener('click', async () => {
+            closeMenu();
+            
+            if (window.loadDataFromCloud) {
+                const btn = document.getElementById('btn-load-cloud');
+                btn.textContent = "⏳ Cargando...";
+                const jsonString = await window.loadDataFromCloud();
+                btn.textContent = "☁️ Cargar de la Nube";
+                
+                if (jsonString) {
+                    try {
+                        const data = JSON.parse(jsonString);
+                        renderDataToTable(data);
+                    } catch (error) {
+                        alert("Error procesando los datos de la nube.");
+                    }
+                }
+            }
+        });
+
+        // --- GUARDAR / CARGAR JSON LOCAL ---
         const jsonFileInput = document.getElementById('json-file-input');
 
         document.getElementById('btn-save-json').addEventListener('click', () => {
@@ -1040,31 +1214,7 @@
             reader.onload = function(event) {
                 try {
                     const data = JSON.parse(event.target.result);
-                    
-                    tableBody.innerHTML = ''; // Limpiar filas viejas
-                    
-                    // Limpiar cabeceras viejas usando su clase
-                    headerRow.querySelectorAll('.provider-header').forEach(th => th.remove());
-                    
-                    // Limpiar footer (dejamos el índice 0: acción, 1: Texto TOTAL, y el último: botón +)
-                    const footThs = tableFootRow.querySelectorAll('th');
-                    for (let i = footThs.length - 2; i >= 2; i--) { 
-                        footThs[i].remove(); 
-                    }
-
-                    extraColumnsCount = 0; // Reiniciar contador antes de cargar
-
-                    if (data.extraHeaders) {
-                        data.extraHeaders.forEach(headerText => {
-                            addColumn(headerText);
-                        });
-                    }
-
-                    if(data.rows) {
-                        data.rows.forEach(row => addRowToTable(row.name, row.imageSrc, row.extraValues));
-                    }
-                    ensureBlankRow();
-                    updateCalculations(); // Calcular tras cargar
+                    renderDataToTable(data);
                 } catch (error) {
                     alert("Error al cargar el archivo.");
                 }
@@ -1072,7 +1222,6 @@
             reader.readAsText(file);
             jsonFileInput.value = '';
         });
-
 
         // --- EXPORTAR A PDF ---
         document.getElementById('btn-export-pdf').addEventListener('click', () => {
