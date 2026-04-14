@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Comparador de Precios</title>
+    <!-- Librería para exportar a PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        /* Diseño Minimalista estilo Apple */
+        :root {
+            --bg-color: #f5f5f7;
+            --text-color: #1d1d1f;
+            --accent-color: #007aff;
+            --accent-hover: #0062cc;
+            --border-color: #d2d2d7;
+            --table-bg: #ffffff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px 15px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .toolbar {
+            margin-bottom: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 12px 18px;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 4px rgba(0, 122, 255, 0.2);
+            flex: 1;
+            min-width: 140px;
+        }
+
+        button:active {
+            transform: scale(0.96);
+        }
+
+        button.btn-secondary {
+            background-color: #e5e5ea;
+            color: var(--text-color);
+            box-shadow: none;
+        }
+
+        button.btn-danger {
+            background-color: #ff3b30;
+            box-shadow: 0 2px 4px rgba(255, 59, 48, 0.2);
+        }
+
+        /* --- Menú Hamburguesa --- */
+        .menu-icon {
+            background: transparent;
+            color: var(--text-color);
+            box-shadow: none;
+            font-size: 20px;
+            padding: 5px 10px;
+            min-width: auto;
+            flex: none;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .menu-icon:active { transform: none; background-color: #e5e5ea; border-radius: 8px;}
+        
+        .side-menu {
+            position: fixed;
+            top: 0; left: -300px;
+            width: 260px;
+            height: 100vh;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            box-shadow: 2px 0 20px rgba(0,0,0,0.1);
+            transition: left 0.3s ease;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .side-menu.active { left: 0; }
+        
+        .menu-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+        .menu-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        /* --- Tabla y Contenedores --- */
+        .table-wrapper {
+            background: var(--table-bg);
+            border-radius: 14px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.06);
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            -webkit-overflow-scrolling: touch;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            min-width: 400px;
+        }
+
+        th, td {
+            padding: 14px;
+            border-bottom: 1px solid var(--border-color);
+            border-right: 1px solid var(--border-color);
+            vertical-align: middle;
+        }
+
+        th {
+            background-color: #fbfbfd;
+            font-weight: 600;
+            color: #86868b;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            outline: none;
+            white-space: nowrap;
+        }
+
+        th:focus, td[contenteditable="true"]:focus {
+            background-color: #f0f8ff;
+        }
+
+        /* --- Animación para cuando se crea la nueva fila --- */
+        @keyframes fadeInRow {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: none; }
+        }
+
+        #table-body tr {
+            animation: fadeInRow 0.3s ease-out;
+            transition: background-color 0.2s;
+        }
+
+        td {
+            outline: none;
+            font-size: 15px;
+        }
+
+        td:last-child, th:last-child {
+            border-right: none;
+        }
+
+        .add-col-btn {
+            background: transparent;
+            color: var(--accent-color);
+            box-shadow: none;
+            font-size: 24px;
+            padding: 0 10px;
+            min-width: auto;
+            flex: none;
+        }
+
+        /* --- Estilos Celda de Producto --- */
+        .product-cell {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-width: 120px;
+            cursor: pointer;
+            padding: 10px;
+            border-radius: 10px;
+            transition: background-color 0.2s;
+        }
+
+        .product-cell:active {
+            background-color: #f0f8ff;
+        }
+
+        .image-thumbnail {
+            width: 60px;
+            height: 60px;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            background-color: #f5f5f7;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            margin: 0 auto;
+        }
+
+        .image-thumbnail img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .placeholder-icon {
+            width: 60px;
+            height: 60px;
+            border: 2px dashed #d2d2d7;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--accent-color);
+            font-size: 28px;
+            margin: 0 auto;
+        }
+
+        .product-name {
+            font-weight: 500;
+            text-align: center;
+            width: 100%;
+            word-break: break-word;
+            font-size: 14px;
+        }
+
+        /* --- MODO EDICIÓN --- */
+        .action-col {
+            display: none; /* Oculto por defecto */
+            width: 50px;
+            text-align: center;
+            background-color: #fbfbfd;
+        }
+
+        body.edit-mode .action-col {
+            display: table-cell; /* Muestra la columna al editar */
+        }
+
+        /* Bloquea la edición normal de celdas mientras organizas */
+        body.edit-mode td[contenteditable="true"],
+        body.edit-mode .product-cell {
+            pointer-events: none; 
+            opacity: 0.8;
+        }
+
+        .edit-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .edit-btn {
+            padding: 6px;
+            font-size: 14px;
+            border-radius: 6px;
+            border: none;
+            background: #e5e5ea;
+            min-width: auto;
+            flex: none;
+            box-shadow: none;
+        }
+
+        .edit-btn.delete {
+            background: #ff3b30;
+            color: white;
+            font-size: 12px;
+        }
+
+
+        /* --- Estilos de Modal Base --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .modal {
+            background: white;
+            padding: 24px;
+            border-radius: 18px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            transform: translateY(20px);
+            transition: transform 0.3s ease;
+            box-sizing: border-box;
+        }
+
+        .modal-overlay.active .modal {
+            transform: translateY(0);
+        }
+
+        .modal h2 {
+            margin-top: 0;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        /* Modal para Cargar Lista Textarea */
+        textarea {
+            width: 100%;
+            height: 120px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 12px;
+            font-family: inherit;
+            resize: none;
+            box-sizing: border-box;
+            outline: none;
+            margin-bottom: 20px;
+            font-size: 16px;
+        }
+
+        textarea:focus { border-color: var(--accent-color); }
+
+        /* Modal de Edición de Producto Individual */
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .product-image-uploader {
+            width: 120px;
+            height: 120px;
+            border: 2px dashed var(--accent-color);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            overflow: hidden;
+            background: #f0f8ff;
+            margin: 0 auto 15px auto;
+            position: relative;
+        }
+
+        .product-image-uploader img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none;
+        }
+
+        .product-image-uploader span {
+            font-size: 36px;
+            color: var(--accent-color);
+        }
+
+        /* Lightbox para ver imagen en grande */
+        .lightbox-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 2000;
+            backdrop-filter: blur(10px);
+            flex-direction: column;
+        }
+
+        .lightbox-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .lightbox-img {
+            max-width: 90vw;
+            max-height: 80vh;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            object-fit: contain;
+        }
+
+        .lightbox-close {
+            margin-top: 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border-radius: 20px;
+            padding: 10px 24px;
+            min-width: auto;
+        }
+
+        /* Ocultar botones y filas vacías al exportar a PDF */
+        .exporting .no-print { display: none !important; }
+        .exporting .blank-row { display: none !important; }
+        .exporting th, .exporting td { border-color: #000 !important; }
+
+    </style>
+</head>
+<body>
+
+    <!-- Menú Lateral -->
+    <div class="menu-overlay" id="menu-overlay"></div>
+    <div class="side-menu" id="side-menu">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
+            <button class="menu-icon" id="btn-close-menu" style="font-size: 24px;">✕</button>
+        </div>
+        <h2 style="margin-top: 0; margin-bottom: 20px; font-size: 20px;">Opciones</h2>
+        <button id="btn-open-list-modal" class="btn-secondary" style="text-align: left;">📝 Pegar Lista de Texto</button>
+        <button id="btn-save-json" class="btn-secondary" style="text-align: left;">💾 Guardar Proyecto</button>
+        <button id="btn-load-json" class="btn-secondary" style="text-align: left;">📂 Cargar Proyecto</button>
+        <input type="file" id="json-file-input" accept=".json" style="display: none;">
+        <div style="flex-grow: 1;"></div>
+        <button id="btn-export-pdf" class="btn-danger" style="text-align: left;">📄 Guardar PDF</button>
+    </div>
+
+    <div class="container">
+        <!-- Toolbar -->
+        <div class="toolbar no-print">
+            <div style="display: flex; align-items: center;">
+                <button id="btn-open-menu" class="menu-icon">☰ Menú</button>
+                <h3 style="margin: 0 0 0 15px; font-weight: 500; font-size: 18px;">Comparador</h3>
+            </div>
+            <!-- Botón de Modo Edición -->
+            <button id="btn-toggle-edit" class="btn-secondary" style="flex: none; min-width: auto; padding: 10px 16px;">✏️ Editar</button>
+        </div>
+
+        <!-- Contenedor de la Tabla -->
+        <div id="export-content">
+            <div class="table-wrapper">
+                <table id="main-table">
+                    <thead>
+                        <tr id="header-row">
+                            <th class="action-col no-print">🛠️</th>
+                            <th style="text-align: center; width: 140px;">Producto</th>
+                            <th id="add-col-th" class="no-print" style="width: 50px; text-align: center;">
+                                <button id="btn-add-col" class="add-col-btn">+</button>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="table-body">
+                        <!-- Filas -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 1: Agregar Lista (Textarea) -->
+    <div class="modal-overlay" id="list-modal">
+        <div class="modal">
+            <h2>Pegar Lista Rápida</h2>
+            <p style="color: #86868b; font-size: 13px; margin-bottom: 15px; text-align: center;">Cada línea será un producto nuevo.</p>
+            <textarea id="object-list-input" placeholder="Ejemplo:&#10;iPhone 15 Pro&#10;MacBook Air M3&#10;AirPods Pro"></textarea>
+            <div class="modal-actions">
+                <button class="btn-secondary" id="btn-close-list-modal">Cancelar</button>
+                <button id="btn-process-list">Agregar Todos</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: Editar un Solo Producto (Imagen + Nombre) -->
+    <div class="modal-overlay" id="product-modal">
+        <div class="modal">
+            <h2>Detalles del Producto</h2>
+            
+            <div style="text-align: center; margin-bottom: 20px;">
+                <input type="file" id="modal-file-input" accept="image/*" style="display: none;">
+                <div class="product-image-uploader" id="modal-image-trigger" title="Toca o pega una imagen">
+                    <span id="modal-image-icon">+</span>
+                    <img id="modal-image-preview" src="" alt="Preview">
+                </div>
+                <!-- Pequeña instrucción agregada para indicar el copiado y pegado -->
+                <p style="color: #86868b; font-size: 13px; margin: 0;">Toca o pega (Ctrl+V) una foto</p>
+            </div>
+
+            <input type="text" id="modal-name-input" placeholder="Nombre del producto..." style="width: 100%; padding: 14px; border: 1px solid var(--border-color); border-radius: 10px; font-size: 16px; box-sizing: border-box; outline: none; font-family: inherit;">
+
+            <div class="modal-actions">
+                <button class="btn-secondary" id="btn-close-product-modal">Cancelar</button>
+                <button id="btn-save-product">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Lightbox para ver imagen en grande -->
+    <div class="lightbox-overlay" id="lightbox">
+        <img src="" alt="Vista ampliada" class="lightbox-img" id="lightbox-img">
+        <button class="lightbox-close" id="btn-close-lightbox">Cerrar</button>
+    </div>
+
+    <script>
+        // Referencias del DOM Generales
+        const tableBody = document.getElementById('table-body');
+        const headerRow = document.getElementById('header-row');
+        const addColTh = document.getElementById('add-col-th');
+        let extraColumnsCount = 0;
+
+        // --- LÓGICA DEL MENÚ ---
+        const sideMenu = document.getElementById('side-menu');
+        const menuOverlay = document.getElementById('menu-overlay');
+        document.getElementById('btn-open-menu').addEventListener('click', () => {
+            sideMenu.classList.add('active');
+            menuOverlay.classList.add('active');
+        });
+        function closeMenu() {
+            sideMenu.classList.remove('active');
+            menuOverlay.classList.remove('active');
+        }
+        document.getElementById('btn-close-menu').addEventListener('click', closeMenu);
+        menuOverlay.addEventListener('click', closeMenu);
+
+        // --- LÓGICA MODO EDICIÓN ---
+        const btnToggleEdit = document.getElementById('btn-toggle-edit');
+        btnToggleEdit.addEventListener('click', () => {
+            document.body.classList.toggle('edit-mode');
+            
+            if (document.body.classList.contains('edit-mode')) {
+                btnToggleEdit.innerHTML = '✅ Listo';
+                btnToggleEdit.classList.remove('btn-secondary');
+            } else {
+                btnToggleEdit.innerHTML = '✏️ Editar';
+                btnToggleEdit.classList.add('btn-secondary');
+            }
+        });
+
+        // --- LÓGICA DEL MODAL DE LISTA (TEXTO) ---
+        const listModal = document.getElementById('list-modal');
+        const textInput = document.getElementById('object-list-input');
+        
+        document.getElementById('btn-open-list-modal').addEventListener('click', () => {
+            closeMenu();
+            listModal.classList.add('active');
+            textInput.value = '';
+        });
+        document.getElementById('btn-close-list-modal').addEventListener('click', () => listModal.classList.remove('active'));
+        
+        document.getElementById('btn-process-list').addEventListener('click', () => {
+            const lines = textInput.value.split('\n').filter(line => line.trim() !== '');
+            lines.forEach(item => addRowToTable(item, null));
+            listModal.classList.remove('active');
+            ensureBlankRow(); // Asegurar línea blanca al final
+        });
+
+        // --- LÓGICA DEL MODAL DE PRODUCTO INDIVIDUAL ---
+        const productModal = document.getElementById('product-modal');
+        const modalNameInput = document.getElementById('modal-name-input');
+        const modalFileInput = document.getElementById('modal-file-input');
+        const modalImageTrigger = document.getElementById('modal-image-trigger');
+        const modalImageIcon = document.getElementById('modal-image-icon');
+        const modalImagePreview = document.getElementById('modal-image-preview');
+        
+        let currentEditingCell = null;
+
+        function openProductModal(cell) {
+            currentEditingCell = cell;
+            const currentName = cell.dataset.name || '';
+            const currentImage = cell.dataset.image || '';
+
+            modalNameInput.value = currentName;
+            modalFileInput.value = '';
+
+            if (currentImage) {
+                modalImagePreview.src = currentImage;
+                modalImagePreview.style.display = 'block';
+                modalImageIcon.style.display = 'none';
+            } else {
+                modalImagePreview.src = '';
+                modalImagePreview.style.display = 'none';
+                modalImageIcon.style.display = 'block';
+            }
+
+            productModal.classList.add('active');
+        }
+
+        document.getElementById('btn-close-product-modal').addEventListener('click', () => productModal.classList.remove('active'));
+
+        // Carga por clic (File explorer)
+        modalImageTrigger.addEventListener('click', () => modalFileInput.click());
+        modalFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    modalImagePreview.src = event.target.result;
+                    modalImagePreview.style.display = 'block';
+                    modalImageIcon.style.display = 'none';
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Lógica para PEGAR la imagen desde el portapapeles
+        document.addEventListener('paste', (e) => {
+            // Solo actuar si el modal del producto está abierto
+            if (!productModal.classList.contains('active')) return;
+
+            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+            for (let index in items) {
+                const item = items[index];
+                if (item.kind === 'file' && item.type.startsWith('image/')) {
+                    const file = item.getAsFile();
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        modalImagePreview.src = event.target.result;
+                        modalImagePreview.style.display = 'block';
+                        modalImageIcon.style.display = 'none';
+                    };
+                    reader.readAsDataURL(file);
+                    break; // Detenerse luego de encontrar la primera imagen
+                }
+            }
+        });
+
+        document.getElementById('btn-save-product').addEventListener('click', () => {
+            if (!currentEditingCell) return;
+
+            const newName = modalNameInput.value.trim();
+            const newImage = modalImagePreview.src.startsWith('data:') ? modalImagePreview.src : '';
+
+            currentEditingCell.dataset.name = newName;
+            currentEditingCell.dataset.image = newImage;
+
+            const imgContainer = currentEditingCell.querySelector('.image-thumbnail');
+            const imgTag = currentEditingCell.querySelector('img');
+            const placeholder = currentEditingCell.querySelector('.placeholder-icon');
+            const nameTag = currentEditingCell.querySelector('.product-name');
+
+            if (newImage) {
+                imgTag.src = newImage;
+                imgContainer.style.display = 'block';
+                placeholder.style.display = 'none';
+            } else {
+                imgTag.src = '';
+                imgContainer.style.display = 'none';
+                placeholder.style.display = 'flex';
+            }
+
+            if (newName) {
+                nameTag.textContent = newName;
+                nameTag.style.color = "var(--text-color)";
+            } else {
+                nameTag.textContent = "Agregar...";
+                nameTag.style.color = "#86868b";
+            }
+
+            const tr = currentEditingCell.closest('tr');
+            if (!newName && !newImage) {
+                tr.classList.add('blank-row');
+                tr.querySelector('.edit-controls').style.display = 'none';
+            } else {
+                tr.classList.remove('blank-row');
+                tr.querySelector('.edit-controls').style.display = 'flex';
+            }
+
+            productModal.classList.remove('active');
+            ensureBlankRow();
+        });
+
+
+        // --- FUNCIONES PRINCIPALES DE LA TABLA ---
+
+        function addRowToTable(name, imageSrc = null, extraValues = []) {
+            const tr = document.createElement('tr');
+            const isBlank = !name && !imageSrc;
+            
+            if (isBlank) tr.classList.add('blank-row');
+
+            // Celda 0: Controles de Edición
+            const tdAction = document.createElement('td');
+            tdAction.className = 'action-col no-print';
+            tdAction.innerHTML = `
+                <div class="edit-controls" style="${isBlank ? 'display: none;' : ''}">
+                    <button class="edit-btn move-up" title="Mover Arriba">⬆️</button>
+                    <button class="edit-btn move-down" title="Mover Abajo">⬇️</button>
+                    <button class="edit-btn delete" title="Eliminar Producto">🗑️</button>
+                </div>
+            `;
+
+            // Lógica botones de edición
+            tdAction.querySelector('.move-up').addEventListener('click', () => {
+                if(tr.previousElementSibling) {
+                    tr.parentNode.insertBefore(tr, tr.previousElementSibling);
+                }
+            });
+
+            tdAction.querySelector('.move-down').addEventListener('click', () => {
+                // No mover por debajo de la fila blanca final
+                if(tr.nextElementSibling && !tr.nextElementSibling.classList.contains('blank-row')) {
+                    tr.parentNode.insertBefore(tr.nextElementSibling, tr);
+                }
+            });
+
+            tdAction.querySelector('.delete').addEventListener('click', () => {
+                if(confirm('¿Seguro que deseas eliminar este producto?')) {
+                    tr.remove();
+                    ensureBlankRow();
+                }
+            });
+
+            tr.appendChild(tdAction);
+
+            // Celda 1: Producto Interactiva
+            const tdProduct = document.createElement('td');
+            tdProduct.dataset.name = name || '';
+            tdProduct.dataset.image = imageSrc || '';
+            
+            tdProduct.innerHTML = `
+                <div class="product-cell">
+                    <div class="placeholder-icon" style="${imageSrc ? 'display: none;' : 'display: flex;'}">+</div>
+                    <div class="image-thumbnail" style="${imageSrc ? 'display: block;' : 'display: none;'}">
+                        <img src="${imageSrc || ''}" alt="Miniatura">
+                    </div>
+                    <div class="product-name" style="color: ${name ? 'var(--text-color)' : '#86868b'}">
+                        ${name || 'Agregar...'}
+                    </div>
+                </div>
+            `;
+
+            tdProduct.addEventListener('click', (e) => {
+                if (document.body.classList.contains('edit-mode')) return; // Bloquear en modo edición
+                
+                if (e.target.closest('.image-thumbnail') && tdProduct.dataset.image) {
+                    openLightbox(tdProduct.dataset.image);
+                } else {
+                    openProductModal(tdProduct);
+                }
+            });
+
+            tr.appendChild(tdProduct);
+
+            // Celdas extra (Precios)
+            for (let i = 0; i < extraColumnsCount; i++) {
+                const tdExtra = document.createElement('td');
+                tdExtra.contentEditable = "true";
+                tdExtra.textContent = extraValues[i] || "";
+                tr.appendChild(tdExtra);
+            }
+
+            tableBody.appendChild(tr);
+        }
+
+        function ensureBlankRow() {
+            const rows = Array.from(tableBody.querySelectorAll('tr'));
+            
+            for (let i = rows.length - 1; i >= 0; i--) {
+                const isBlank = rows[i].classList.contains('blank-row');
+                if (isBlank && i !== rows.length - 1) {
+                    rows[i].remove(); 
+                }
+            }
+
+            const remainingRows = tableBody.querySelectorAll('tr');
+            if (remainingRows.length === 0 || !remainingRows[remainingRows.length - 1].classList.contains('blank-row')) {
+                addRowToTable('', null, []);
+                
+                setTimeout(() => {
+                    window.scrollTo({
+                        top: document.body.scrollHeight,
+                        behavior: 'smooth'
+                    });
+                }, 50);
+            }
+        }
+
+
+        // --- LÓGICA DE COLUMNAS (PRECIOS) ---
+        document.getElementById('btn-add-col').addEventListener('click', () => {
+            extraColumnsCount++;
+
+            const newTh = document.createElement('th');
+            newTh.textContent = "Precio " + extraColumnsCount;
+            newTh.contentEditable = "true";
+            headerRow.insertBefore(newTh, addColTh);
+
+            const rows = tableBody.querySelectorAll('tr');
+            rows.forEach(row => {
+                const newTd = document.createElement('td');
+                newTd.contentEditable = "true";
+                row.appendChild(newTd);
+            });
+        });
+
+
+        // --- LIGHTBOX (Ver imagen gigante) ---
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+        
+        function openLightbox(src) {
+            lightboxImg.src = src;
+            lightbox.classList.add('active');
+        }
+        
+        document.getElementById('btn-close-lightbox').addEventListener('click', () => lightbox.classList.remove('active'));
+        lightbox.addEventListener('click', (e) => { if(e.target === lightbox) lightbox.classList.remove('active'); });
+
+
+        // --- GUARDAR / CARGAR JSON ---
+        const jsonFileInput = document.getElementById('json-file-input');
+
+        document.getElementById('btn-save-json').addEventListener('click', () => {
+            closeMenu();
+            
+            const ths = Array.from(headerRow.querySelectorAll('th'));
+            // Ahora la columna de Producto es el índice 1 y "+" es el último.
+            const extraHeaders = ths.slice(2, ths.length - 1).map(th => th.textContent);
+
+            const rows = [];
+            document.querySelectorAll('#table-body tr:not(.blank-row)').forEach(tr => {
+                const tds = tr.querySelectorAll('td');
+                const name = tds[1].dataset.name; // Indice 1 es Producto
+                const imageSrc = tds[1].dataset.image;
+                const extraValues = Array.from(tds).slice(2).map(td => td.textContent); // Índices 2 en adelante
+                rows.push({ name, imageSrc, extraValues });
+            });
+
+            const data = { extraHeaders, rows };
+            const blob = new Blob([JSON.stringify(data)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = "mi_cotizacion.json";
+            a.click();
+            URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('btn-load-json').addEventListener('click', () => {
+            closeMenu();
+            jsonFileInput.click();
+        });
+
+        jsonFileInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                try {
+                    const data = JSON.parse(event.target.result);
+                    
+                    tableBody.innerHTML = '';
+                    
+                    const ths = headerRow.querySelectorAll('th');
+                    // Remover todas las cabeceras extras viejas
+                    for (let i = 2; i < ths.length - 1; i++) { ths[i].remove(); }
+
+                    extraColumnsCount = data.extraHeaders ? data.extraHeaders.length : 0;
+                    data.extraHeaders.forEach(headerText => {
+                        const newTh = document.createElement('th');
+                        newTh.textContent = headerText;
+                        newTh.contentEditable = "true";
+                        headerRow.insertBefore(newTh, addColTh);
+                    });
+
+                    if(data.rows) {
+                        data.rows.forEach(row => addRowToTable(row.name, row.imageSrc, row.extraValues));
+                    }
+                    ensureBlankRow();
+                } catch (error) {
+                    alert("Error al cargar el archivo.");
+                }
+            };
+            reader.readAsText(file);
+            jsonFileInput.value = '';
+        });
+
+
+        // --- EXPORTAR A PDF ---
+        document.getElementById('btn-export-pdf').addEventListener('click', () => {
+            closeMenu();
+            // Asegurarse de que salimos de modo edición al imprimir
+            document.body.classList.remove('edit-mode');
+            btnToggleEdit.innerHTML = '✏️ Editar';
+            btnToggleEdit.classList.add('btn-secondary');
+
+            document.body.classList.add('exporting');
+            
+            const element = document.getElementById('export-content');
+            const opt = {
+                margin:       10,
+                filename:     'Cotizacion.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().set(opt).from(element).save().then(() => {
+                document.body.classList.remove('exporting');
+            });
+        });
+
+        // INICIALIZACIÓN
+        ensureBlankRow();
+
+    </script>
+</body>
+</html>
